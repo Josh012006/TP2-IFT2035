@@ -205,13 +205,13 @@ data Ltype = Lint               -- Le type des nombres entiers.
 
 data Lexp = Lnum Int                    -- Constante entière.
           | Lvar Var                    -- Référence à une variable.
-          | Labs Var Lexp               -- Fonction anonyme prenant un argument.
+          | Labs Var LType Lexp         -- Fonction anonyme prenant un argument.
           | Lapply Lexp Lexp            -- Appel de fonction, avec un argument.
           | Lnew Constructor [Lexp]
           | Lfilter Lexp [(Lpat, Lexp)] -- Filtrage.
           -- Déclaration d'une liste de variables qui peuvent être
           -- mutuellement récursives.
-          | Ldef [(Var, Lexp)] Lexp
+          | Ldef [(Var, Maybe Ltype, Lexp)] Lexp
           | Ladt Tvar [Lcons] Lexp      -- Définition de type algébrique.
           deriving (Show, Eq)
 
