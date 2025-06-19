@@ -194,6 +194,7 @@ showSexp e = showSexp' e ""
 type Var = String
 type Constructor = Var
 type Lpat = Maybe (Constructor, [Var])
+type Lcons = (Constructor, [Ltype])     -- Définition de constructeur.
 type TVar = Var
 
 data Ltype = Lint               -- Le type des nombres entiers.
@@ -211,6 +212,7 @@ data Lexp = Lnum Int                    -- Constante entière.
           -- Déclaration d'une liste de variables qui peuvent être
           -- mutuellement récursives.
           | Ldef [(Var, Lexp)] Lexp
+          | Ladt Tvar [Lcons] Lexp      -- Définition de type algébrique.
           deriving (Show, Eq)
 
 ---------------------------------------------------------------------------
