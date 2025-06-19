@@ -194,7 +194,8 @@ showSexp e = showSexp' e ""
 type Var = String
 type Constructor = Var
 type Lpat = Maybe (Constructor, [Var])
-type Lcons = (Constructor, [Ltype])     -- Définition de constructeur.
+type SType = String                     -- Le nom du type sous forme de String.
+type Lcons = (Constructor, [Stype])     -- Définition de constructeur.
 type TVar = Var
 
 data Ltype = Lint               -- Le type des nombres entiers.
@@ -205,13 +206,13 @@ data Ltype = Lint               -- Le type des nombres entiers.
 
 data Lexp = Lnum Int                    -- Constante entière.
           | Lvar Var                    -- Référence à une variable.
-          | Labs Var LType Lexp         -- Fonction anonyme prenant un argument.
+          | Labs (Var, SType) Lexp      -- Fonction anonyme prenant un argument.
           | Lapply Lexp Lexp            -- Appel de fonction, avec un argument.
           | Lnew Constructor [Lexp]
           | Lfilter Lexp [(Lpat, Lexp)] -- Filtrage.
           -- Déclaration d'une liste de variables qui peuvent être
           -- mutuellement récursives.
-          | Ldef [(Var, Maybe Ltype, Lexp)] Lexp
+          | Ldef [((Var, Maybe Stype), Lexp)] Lexp
           | Ladt Tvar [Lcons] Lexp      -- Définition de type algébrique.
           deriving (Show, Eq)
 
@@ -232,9 +233,11 @@ s2l (Ssym s) = Lvar s
 s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
       let mkabs [] = s2l sbody
-          mkabs ((Ssym arg) : sargs') = Labs arg (mkabs sargs')
-          mkabs (sarg : _) = error ("Argument formel non reconnu: " ++ show sarg)
-      in mkabs (sexp2revlist sargs)
+          mkabs ((Ssym arg) : (Ssym type) : sargs') 
+              = Labs (arg, type) (mkabs (reverse sexp2revlist sargs'))
+          mkabs (sarg : _) 
+              = error ("Argument formel non reconnu: " ++ show sarg)
+      in mkabs (reverse sexp2revlist sargs)
   [Ssym "def", decls, sbody] ->
       let s2d (Scons (Scons Snil (Ssym var)) sdef) = (var, s2l sdef)
           s2d (Scons (Scons (Scons Snil (Ssym var)) sargs) sdef)
