@@ -194,7 +194,7 @@ showSexp e = showSexp' e ""
 type Var = String
 type Constructor = Var
 type Lpat = Maybe (Constructor, [Var])
-type SType = String                     -- Le nom du type sous forme de String.
+type Stype = String                     -- Le nom du type sous forme de String.
 type Lcons = (Constructor, [Stype])     -- Définition de constructeur.
 type TVar = Var
 
@@ -206,14 +206,14 @@ data Ltype = Lint               -- Le type des nombres entiers.
 
 data Lexp = Lnum Int                    -- Constante entière.
           | Lvar Var                    -- Référence à une variable.
-          | Labs (Var, SType) Lexp      -- Fonction anonyme prenant un argument.
+          | Labs (Var, Stype) Lexp      -- Fonction anonyme prenant un argument.
           | Lapply Lexp Lexp            -- Appel de fonction, avec un argument.
           | Lnew Constructor [Lexp]
           | Lfilter Lexp [(Lpat, Lexp)] -- Filtrage.
           -- Déclaration d'une liste de variables qui peuvent être
           -- mutuellement récursives.
           | Ldef [((Var, Maybe Stype), Lexp)] Lexp
-          | Ladt Tvar [Lcons] Lexp      -- Définition de type algébrique.
+          | Ladt TVar [Lcons] Lexp      -- Définition de type algébrique.
           deriving (Show, Eq)
 
 ---------------------------------------------------------------------------
@@ -233,15 +233,20 @@ s2l (Ssym s) = Lvar s
 s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
       let mkabs [] = s2l sbody
-          mkabs ((Ssym arg) : (Ssym type) : sargs') 
-              = Labs (arg, type) (mkabs (reverse sexp2revlist sargs'))
+          mkabs ((Ssym arg) : (Ssym stype) : sargs') -- aussi traiter le type
+              = Labs (arg, stype) (mkabs (sexp2revlist sargs'))
           mkabs (sarg : _) 
               = error ("Argument formel non reconnu: " ++ show sarg)
-      in mkabs (reverse sexp2revlist sargs)
+      in mkabs (reverse (sexp2revlist sargs))
   [Ssym "def", decls, sbody] ->
-      let s2d (Scons (Scons Snil (Ssym var)) sdef) = (var, s2l sdef)
-          s2d (Scons (Scons (Scons Snil (Ssym var)) sargs) sdef)
-              = (var, s2l (Scons (Scons (Scons Snil (Ssym "abs")) sargs) sdef))
+      let s2d (Scons (Scons Snil (Ssym var)) sdef) = ((var, Nothing), s2l sdef)
+          s2d (Scons (Scons (Scons Snil (Ssym var)) (Ssym stype)) sdef) 
+              = ((var, Just stype), s2l sdef) -- déclaration avec type
+          s2d (Scons (Scons 
+                        (Scons (Scons Snil (Ssym var)) sargs) (Ssym rtype)) 
+                    sdef)
+              = ((var, Just rtype),  -- rtype est el type de retour
+                    s2l (Scons (Scons (Scons Snil (Ssym "abs")) sargs) sdef))
           s2d decl = error ("Declaration non reconnue: " ++ show decl)
       in Ldef (map s2d (reverse (sexp2revlist decls))) (s2l sbody)
   [Ssym "if", scond, sthen, selse] ->
@@ -261,6 +266,10 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
           s2b (Scons (Scons Snil spat) sbody) = (s2p spat, s2l sbody)
           s2b sbranch = error ("Branche non reconnue: " ++ show sbranch)
       in Lfilter (s2l starget) (map s2b sbranches)
+  [Ssym "adt", Ssym dt, tags, sbody] ->   -- définition de type algébrique
+      let
+          s2a tag = error ("Constructeur non reconnu: " ++ show tag)
+      in error(show (reverse (sexp2revlist tags)))-- Ladt dt (map s2a (reverse (sexp2revlist tags))) (s2l body)
   sfun : sargs ->
       foldl (\ l sarg -> Lapply l (s2l sarg)) (s2l sfun) sargs
   [] -> error "Impossible"

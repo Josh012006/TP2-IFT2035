@@ -1,0 +1,9 @@
+;; Tester une définition de type algébrique
+(adt ListInt
+    ((nil:)
+     (cons: Int ListInt))
+  (def ((even ((xs ListInt))
+         (filter xs (nil: 0) ((cons: x xs) (odd xs))))
+        (odd ((xs ListInt))
+         (filter xs (nil: 1) ((cons: x xs) (even xs)))))
+    (odd (new cons: 2 (new cons: 3 (new nil:))))))                   ; ↝ 1
