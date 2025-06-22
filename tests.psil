@@ -1,4 +1,9 @@
 ;; Tester une définition de type algébrique
+
+(abs ((x1 Int)
+      (x2 Int))
+    (+ x1 x2))
+
 (adt ListInt
     ((nil:)
      (cons: Int ListInt))

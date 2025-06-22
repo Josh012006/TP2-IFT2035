@@ -232,12 +232,14 @@ s2l (Snum n) = Lnum n
 s2l (Ssym s) = Lvar s
 s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
-      let mkabs [] = s2l sbody
-          mkabs ((Ssym arg) : (Ssym stype) : sargs') -- aussi traiter le type
-              = Labs (arg, stype) (mkabs (sexp2revlist sargs'))
-          mkabs (sarg : _) 
-              = error ("Argument formel non reconnu: " ++ show sarg)
-      in mkabs (reverse (sexp2revlist sargs))
+      let mkabs (Scons (Scons Snil (Ssym arg)) (Ssym stype)) 
+              = Labs (arg, stype) (s2l sbody)
+          mkabs (Scons se 
+                    (Scons (Scons Snil (Ssym arg)) (Ssym stype)))
+              = Labs (arg, stype) (mkabs se)
+          mkabs sabs 
+              = error ("Argument formel non reconnu: " ++ show sabs)
+      in mkabs sargs
   [Ssym "def", decls, sbody] ->
       let s2d (Scons (Scons Snil (Ssym var)) sdef) = ((var, Nothing), s2l sdef)
           s2d (Scons (Scons (Scons Snil (Ssym var)) (Ssym stype)) sdef) 
@@ -267,9 +269,12 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
           s2b sbranch = error ("Branche non reconnue: " ++ show sbranch)
       in Lfilter (s2l starget) (map s2b sbranches)
   [Ssym "adt", Ssym dt, tags, sbody] ->   -- définition de type algébrique
-      let
-          s2a tag = error ("Constructeur non reconnu: " ++ show tag)
-      in error(show (reverse (sexp2revlist tags)))-- Ladt dt (map s2a (reverse (sexp2revlist tags))) (s2l body)
+      let s2lcons (c : stypes) = (c, stypes)
+          s2lcons a = error ("Défintion de constructeur inconnue: " ++ show a)
+          s2a Snil = []
+          s2a (Scons se a) = s2lcons (reverse (sexp2revlist a)): s2a se
+          s2a tag = error ("Défintion de constructeur inconnue: " ++ show tag)
+      in Ladt dt (reverse (s2a tags)) (s2l sbody)
   sfun : sargs ->
       foldl (\ l sarg -> Lapply l (s2l sarg)) (s2l sfun) sargs
   [] -> error "Impossible"
@@ -361,7 +366,7 @@ tenv0 = map (\(x,t,_v) -> (x,t)) env0
 check :: DTEnv -> TEnv -> Lexp -> Ltype
 check _ _ (Lnum _) = Lint
 -- COMPLÉTER ICI!!
-
+check _ _ _ = error("check")
 
 ---------------------------------------------------------------------------
 -- Interpréteur/compilateur                                              --
@@ -390,7 +395,7 @@ eval xs (Lvar x)
       -- sans comparer des noms de variables.
       in \vs -> vs !! pos
 -- COMPLÉTER ICI!!
-
+eval _ _ = error("eval")
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
 ---------------------------------------------------------------------------
