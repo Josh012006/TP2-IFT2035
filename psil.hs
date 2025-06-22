@@ -254,11 +254,13 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "def", decls, sbody] ->
       let s2d (Scons (Scons Snil (Ssym var)) sdef) = ((var, Nothing), s2l sdef)
           s2d (Scons (Scons (Scons Snil (Ssym var)) (stype)) sdef) 
-              = ((var, Just (identify stype)), s2l sdef)-- déclaration avec type
+            -- déclaration avec type
+              = ((var, Just ((identify stype), False)), s2l sdef)
           s2d (Scons (Scons 
                         (Scons (Scons Snil (Ssym var)) sargs) (rtype)) 
                     sdef)
-              = ((var, Just (identify rtype)),  -- rtype est le type de retour
+            -- rtype est le type de retour
+              = ((var, Just ((identify rtype), True)),
                     s2l (Scons (Scons (Scons Snil (Ssym "abs")) sargs) sdef))
           s2d decl = error ("Declaration non reconnue: " ++ show decl)
       in Ldef (map s2d (reverse (sexp2revlist decls))) (s2l sbody)
@@ -390,13 +392,16 @@ check denv tenv (Lapply e1 e2)
             t -> if t == t1 then t2 
                 else Lerror("Le paramètre n'a pas le type attendu: " ++ show e2)
         _ -> Lerror ("Une fonction était attendue: " ++ show e1)
-check denv tenv (Labs (x, xtype) e) = 
-    Limply xtype (check denv ((x, xtype) : tenv) e)
+check denv tenv (Labs (x, xtype) e) 
+    = let checkedBody = (check denv ((x, xtype) : tenv) e)
+      in case checkedBody of 
+        err@(Lerror _) -> err -- vérifie s'il n'y a pas eu d'erreur en chemin
+        _ -> Limply xtype checkedBody
 check denv tenv (Ldef defs e) = 
     let dummyEnv 
         -- Environnement simple avec les types bidon et les types attendus
             = let record ((xi, Nothing), _) = (xi, Ldummy xi)
-                       record ((xi, Just (ti, _)), _) = (xi, ti)
+                  record ((xi, Just (ti, _)), _) = (xi, ti)
               in map record defs
         env0 = dummyEnv ++ tenv
         -- Recherche de type en utilisant les types bidon
@@ -412,23 +417,34 @@ check denv tenv (Ldef defs e) =
             = let checked = deleteDummy (find xi dummytypes)
               in case di of
                 -- Cas d'une déclaration non récursive (x e)
-                (Nothing) -> checked
+                (Nothing) -> (xi, checked)
                 -- Si c'est une expression de type (x τ e), on vérifie juste que 
                 -- le type de e est le même que celui de τ
-                (Just (ti, False)) -> if checked == ti then ti
-                    else Lerror ("L'expression " ++ show e ++
-                                    " n'a pas le type attendu " ++ show ti)
+                (Just (ti, False)) -> if checked == ti then (xi, ti)
+                    else (xi, Lerror ("L'expression " ++ show e ++
+                                    " n'a pas le type attendu " ++ show ti))
                 -- Si c'est une déclaration de fonction, on vérifie que le type
                 -- de retour τ est le même que le type de retour de e  
                 (Just (ti, True)) -> case checked of
-                    (Limply args rtype) -> if ti == rtype then checked 
-                        else Lerror ("Type de retour de " ++ 
-                                        show ei ++ " incorrect.")
-                    _ -> Lerror ("Une fonction était attendue: " ++ show ei)
+                    (Limply args rtype) -> if ti == rtype then (xi, checked) 
+                        else (xi, Lerror ("Type de retour de " ++ 
+                                        show ei ++ " incorrect."))
+                    _ -> (xi, 
+                            Lerror ("Une fonction était attendue: " ++ show ei))
         -- On forme finalement l'environnement utilisé pour évaluer 
         -- le body du Ldef
-        tenv' = (map verify defs) ++ tenv
-    in check denv tenv' e
+        verified = (map verify defs)
+        noError [] = (True, Nothing)
+        noError ((_, xtype): xs) = case xtype of
+            err@(Lerror _) -> (False, Just err)
+            _ -> noError xs
+        tenv' = verified ++ tenv
+    in  -- on vérifie qu'il n'y a pas eu d'erreur en chemin
+       let problemFree = (noError verified)
+       in if fst problemFree then check denv tenv' e 
+          else case (snd problemFree) of
+            (Just err) -> err
+            _ -> error("Une erreur est survenue.")
 check denv tenv (Ladt dt as e) = check ((dt, as) : denv) tenv e
 check denv tenv (Lnew cons exps) = 
     let searchC _ [] = (False, [])
