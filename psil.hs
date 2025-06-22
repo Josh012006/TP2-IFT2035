@@ -194,12 +194,15 @@ showSexp e = showSexp' e ""
 type Var = String
 type Constructor = Var
 type Lpat = Maybe (Constructor, [Var])
+type Func = Bool                        -- Func précise si c'est une fonction
+type Defs = Maybe (Ltype, Func)        -- Le type d'une définition locale
 type Lcons = (Constructor, [Ltype])     -- Définition de constructeur.
 type TVar = Var
 
 data Ltype = Lint               -- Le type des nombres entiers.
            | Limply Ltype Ltype -- Le type d'une abstraction.
            | Ldatatype TVar     -- Le nom d'un type algébrique.
+           | Ldummy Var         -- Le type bidon 
            | Lerror String      -- Erreur de typage.
           deriving (Show, Eq)
 
@@ -211,7 +214,7 @@ data Lexp = Lnum Int                    -- Constante entière.
           | Lfilter Lexp [(Lpat, Lexp)] -- Filtrage.
           -- Déclaration d'une liste de variables qui peuvent être
           -- mutuellement récursives.
-          | Ldef [((Var, Maybe Ltype), Lexp)] Lexp
+          | Ldef [((Var, Defs), Lexp)] Lexp
           | Ladt TVar [Lcons] Lexp      -- Définition de type algébrique.
           deriving (Show, Eq)
 
@@ -389,7 +392,43 @@ check denv tenv (Lapply e1 e2)
         _ -> Lerror ("Une fonction était attendue: " ++ show e1)
 check denv tenv (Labs (x, xtype) e) = 
     Limply xtype (check denv ((x, xtype) : tenv) e)
-check denv tenv (Ldef ds e) = Lint -- a faire
+check denv tenv (Ldef defs e) = 
+    let dummyEnv 
+        -- Environnement simple avec les types bidon et les types attendus
+            = let record ((xi, Nothing), _) = (xi, Ldummy xi)
+                       record ((xi, Just (ti, _)), _) = (xi, ti)
+              in map record defs
+        env0 = dummyEnv ++ tenv
+        -- Recherche de type en utilisant les types bidon
+        dummytypes = map (\((xi, _), ei) -> (xi, check denv env0 ei)) defs
+        find x [] = error ("Variable non retrouvée.")
+        find x ((xi, xtype) : xs) = if xi == x then xtype else find x xs
+        -- Une fonction qui remplace les types bidons par les bonnes valeurs
+        deleteDummy (Ldummy x) = deleteDummy (find x dummytypes)
+        deleteDummy (Limply e1 e2) = Limply (deleteDummy e1) (deleteDummy e2)
+        deleteDummy t = t
+        -- Vérification de la conformité en remplaçant les types bidons
+        verify ((xi, di), ei) 
+            = let checked = deleteDummy (find xi dummytypes)
+              in case di of
+                -- Cas d'une déclaration non récursive (x e)
+                (Nothing) -> checked
+                -- Si c'est une expression de type (x τ e), on vérifie juste que 
+                -- le type de e est le même que celui de τ
+                (Just (ti, False)) -> if checked == ti then ti
+                    else Lerror ("L'expression " ++ show e ++
+                                    " n'a pas le type attendu " ++ show ti)
+                -- Si c'est une déclaration de fonction, on vérifie que le type
+                -- de retour τ est le même que le type de retour de e  
+                (Just (ti, True)) -> case checked of
+                    (Limply args rtype) -> if ti == rtype then checked 
+                        else Lerror ("Type de retour de " ++ 
+                                        show ei ++ " incorrect.")
+                    _ -> Lerror ("Une fonction était attendue: " ++ show ei)
+        -- On forme finalement l'environnement utilisé pour évaluer 
+        -- le body du Ldef
+        tenv' = (map verify defs) ++ tenv
+    in check denv tenv' e
 check denv tenv (Ladt dt as e) = check ((dt, as) : denv) tenv e
 check denv tenv (Lnew cons exps) = 
     let searchC _ [] = (False, [])
