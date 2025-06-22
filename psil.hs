@@ -413,7 +413,41 @@ check denv tenv (Lnew cons exps) =
                     else Lerror ("Type invalide pour argument " ++ show e ++
                                     "du constructeur.")
             in verify exps myargs
-check denv tenv (Lfilter e bs) = Lint -- a faire
+check denv tenv (Lfilter e (b : bs)) = case (check denv tenv e) of
+    (Ldatatype d) -> let 
+        -- on recherche le type algébrique dans Δ et on renvoie les informations
+        -- sur ses constructeurs
+        searchDt mydt [] = error ("Type algébrique inconnu: " ++ show mydt)
+        searchDt mydt ((dt, cs): dts) = 
+            if dt == mydt then cs else searchDt mydt dts
+        -- on recherche un constructeur dans la liste des constructeurs et 
+        -- on renvoie les informations sur les types de ses arguments
+        searchC c [] = error ("Constructeur " ++ show c ++ 
+                               " non trouvé pour le type algébrique " ++ show d)
+        searchC c ((c1, types) : cs) = if c1 == c then types else searchC c cs
+        -- on cherche le type τ de l'expression renvoyée pour le branchement
+        cons = searchDt d denv
+        seekt br = case br of
+            (Nothing, e) -> check denv tenv e 
+            (Just (c, args), e) -> let 
+                types = searchC c cons
+                -- on vérifie que les arguments existent tous et sont du
+                -- bon nombre
+                valid = (length types) == (length args)
+              in if not valid then 
+                  Lerror ("Branchement invalide: " ++ show br)
+                 else check denv ((zip args types) ++ tenv) e
+        -- on recherche le type renvoyé par le premier branchement tout en 
+        -- vérifiant que c'est un branchement valide
+        expectedT = seekt b
+        -- on vérifie que le type renvoyé par les branchements est uniforme
+        allEquals [] = True
+        allEquals (b2 : brs) = (seekt b2 == expectedT) && (allEquals brs)
+        correct = allEquals bs
+      in if correct  then expectedT
+         else Lerror ("Les corps des branchements " ++ 
+                        "doivent tous avoir le même type: " ++ show ((b : bs)))
+    _ -> Lerror ("Un type algébrique est attendu pour le filtrage: " ++ show e)
 
 ---------------------------------------------------------------------------
 -- Interpréteur/compilateur                                              --
