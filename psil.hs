@@ -24,7 +24,7 @@ data Sexp = Snil                        -- La liste vide
           | Snum Int                    -- Un entier
           -- Génère automatiquement un pretty-printer et une fonction de
           -- comparaison structurelle.
-          deriving (Show, Eq)
+          deriving (Show, Eq) 
 
 -- Exemples:
 -- (+ 2 3)  ==  (((() . +) . 2) . 3)
@@ -194,8 +194,7 @@ showSexp e = showSexp' e ""
 type Var = String
 type Constructor = Var
 type Lpat = Maybe (Constructor, [Var])
-type Stype = String                     -- Le nom du type sous forme de String.
-type Lcons = (Constructor, [Stype])     -- Définition de constructeur.
+type Lcons = (Constructor, [Ltype])     -- Définition de constructeur.
 type TVar = Var
 
 data Ltype = Lint               -- Le type des nombres entiers.
@@ -206,13 +205,13 @@ data Ltype = Lint               -- Le type des nombres entiers.
 
 data Lexp = Lnum Int                    -- Constante entière.
           | Lvar Var                    -- Référence à une variable.
-          | Labs (Var, Stype) Lexp      -- Fonction anonyme prenant un argument.
+          | Labs (Var, Ltype) Lexp      -- Fonction anonyme prenant un argument.
           | Lapply Lexp Lexp            -- Appel de fonction, avec un argument.
           | Lnew Constructor [Lexp]
           | Lfilter Lexp [(Lpat, Lexp)] -- Filtrage.
           -- Déclaration d'une liste de variables qui peuvent être
           -- mutuellement récursives.
-          | Ldef [((Var, Maybe Stype), Lexp)] Lexp
+          | Ldef [((Var, Maybe Ltype), Lexp)] Lexp
           | Ladt TVar [Lcons] Lexp      -- Définition de type algébrique.
           deriving (Show, Eq)
 
@@ -224,7 +223,16 @@ sexp2revlist :: Sexp -> [Sexp]
 sexp2revlist Snil = []
 sexp2revlist (Scons ses se) = se : sexp2revlist ses
 sexp2revlist se = error ("Pas une liste: " ++ show se)
-            
+
+-- Une fonction pour reconnaitre à partir de la chaine de caractère lue,
+-- le type associé
+identify :: Sexp -> Ltype
+identify (Ssym "Int") = Lint -- (x Int)
+identify (Ssym dt) = Ldatatype dt -- (x dt)
+identify (Scons Snil t) = identify t
+identify (Scons (Scons t1 (Ssym "->")) (Ssym t2)) -- (x (t1 -> t2))
+    = Limply (identify t1) (identify (Ssym t2))
+identify se = error ("Déclaration de type non reconnue: " ++ show se)
 
 -- Première passe simple qui analyse un Sexp et construit une Lexp équivalente.
 s2l :: Sexp -> Lexp
@@ -232,22 +240,22 @@ s2l (Snum n) = Lnum n
 s2l (Ssym s) = Lvar s
 s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
-      let mkabs (Scons (Scons Snil (Ssym arg)) (Ssym stype)) 
-              = Labs (arg, stype) (s2l sbody)
+      let mkabs (Scons (Scons Snil (Ssym arg)) (stype)) 
+              = Labs (arg, (identify stype)) (s2l sbody)
           mkabs (Scons se 
-                    (Scons (Scons Snil (Ssym arg)) (Ssym stype)))
-              = Labs (arg, stype) (mkabs se)
+                    (Scons (Scons Snil (Ssym arg)) (stype)))
+              = Labs (arg, (identify stype)) (mkabs se)
           mkabs sabs 
               = error ("Argument formel non reconnu: " ++ show sabs)
       in mkabs sargs
   [Ssym "def", decls, sbody] ->
       let s2d (Scons (Scons Snil (Ssym var)) sdef) = ((var, Nothing), s2l sdef)
-          s2d (Scons (Scons (Scons Snil (Ssym var)) (Ssym stype)) sdef) 
-              = ((var, Just stype), s2l sdef) -- déclaration avec type
+          s2d (Scons (Scons (Scons Snil (Ssym var)) (stype)) sdef) 
+              = ((var, Just (identify stype)), s2l sdef)-- déclaration avec type
           s2d (Scons (Scons 
-                        (Scons (Scons Snil (Ssym var)) sargs) (Ssym rtype)) 
+                        (Scons (Scons Snil (Ssym var)) sargs) (rtype)) 
                     sdef)
-              = ((var, Just rtype),  -- rtype est el type de retour
+              = ((var, Just (identify rtype)),  -- rtype est le type de retour
                     s2l (Scons (Scons (Scons Snil (Ssym "abs")) sargs) sdef))
           s2d decl = error ("Declaration non reconnue: " ++ show decl)
       in Ldef (map s2d (reverse (sexp2revlist decls))) (s2l sbody)
@@ -269,8 +277,9 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
           s2b sbranch = error ("Branche non reconnue: " ++ show sbranch)
       in Lfilter (s2l starget) (map s2b sbranches)
   [Ssym "adt", Ssym dt, tags, sbody] ->   -- définition de type algébrique
-      let s2lcons (c : stypes) = (c, stypes)
-          s2lcons a = error ("Défintion de constructeur inconnue: " ++ show a)
+      let s2lcons ((Ssym c) : stypes) 
+              = (c, (map (\stype -> (identify stype)) stypes))
+          s2lcons a = error ("Définition de constructeur inconnue: " ++ show a)
           s2a Snil = []
           s2a (Scons se a) = s2lcons (reverse (sexp2revlist a)): s2a se
           s2a tag = error ("Défintion de constructeur inconnue: " ++ show tag)
@@ -365,8 +374,23 @@ tenv0 = map (\(x,t,_v) -> (x,t)) env0
 -- Δ, Γ, et e sont les trois arguments et elle renvoie le τ correspondant.
 check :: DTEnv -> TEnv -> Lexp -> Ltype
 check _ _ (Lnum _) = Lint
--- COMPLÉTER ICI!!
-check _ _ _ = error("check")
+check _ tenv (Lvar x) 
+    = let search _ [] = error ("Variable non retrouvée dans " ++  
+                                    "l'environnement de type: " ++ show x)
+          search y ((v, vtype): vs) = if v == y then vtype else search y vs
+      in search x tenv  -- on recherche le type dans l'environnement Γ
+check denv tenv (Lapply e1 e2) 
+-- On vérifie premièrement que e1 est de type fonction puis que le type
+-- de e2 est le type de paramètre de e1
+    = case (check denv tenv e1) of
+        (Limply t1 t2) -> case (check denv tenv e2) of
+            t -> if t == t1 then t2 
+                else Lerror("Le paramètre n'a pas le type attendu: " ++ show e2)
+        _ -> Lerror ("Une fonction était attendue: " ++ show e1)
+check denv tenv (Labs (x, xtype) e) = 
+    Limply xtype (check denv ((x, xtype) : tenv) e)
+
+check _ _ le = error("Expression Psil inconnue: " ++ show le)
 
 ---------------------------------------------------------------------------
 -- Interpréteur/compilateur                                              --
