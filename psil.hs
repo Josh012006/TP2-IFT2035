@@ -374,11 +374,11 @@ tenv0 = map (\(x,t,_v) -> (x,t)) env0
 -- Δ, Γ, et e sont les trois arguments et elle renvoie le τ correspondant.
 check :: DTEnv -> TEnv -> Lexp -> Ltype
 check _ _ (Lnum _) = Lint
-check _ tenv (Lvar x) 
-    = let search _ [] = error ("Variable non retrouvée dans " ++  
-                                    "l'environnement de type: " ++ show x)
-          search y ((v, vtype): vs) = if v == y then vtype else search y vs
-      in search x tenv  -- on recherche le type dans l'environnement Γ
+check _ tenv (Lvar x) = 
+    let search y [] = error ("Variable non retrouvée dans " ++  
+                                  "l'environnement de type: " ++ show y)
+        search y ((v, vtype): vs) = if v == y then vtype else search y vs
+    in search x tenv  -- on recherche le type dans l'environnement Γ
 check denv tenv (Lapply e1 e2) 
 -- On vérifie premièrement que e1 est de type fonction puis que le type
 -- de e2 est le type de paramètre de e1
@@ -389,8 +389,31 @@ check denv tenv (Lapply e1 e2)
         _ -> Lerror ("Une fonction était attendue: " ++ show e1)
 check denv tenv (Labs (x, xtype) e) = 
     Limply xtype (check denv ((x, xtype) : tenv) e)
-
-check _ _ le = error("Expression Psil inconnue: " ++ show le)
+check denv tenv (Ldef ds e) = Lint -- a faire
+check denv tenv (Ladt dt as e) = check ((dt, as) : denv) tenv e
+check denv tenv (Lnew cons exps) = 
+    let searchC _ [] = (False, [])
+        searchC c ((ct, args) : cs) 
+            = if ct == c then (True, args) else searchC c cs
+        searchDt c [] = error ("Constructeur inconnu: " ++ show c)
+        searchDt c ((dt, cs): dts) = 
+            let result = (searchC c cs) 
+            in if fst result then (dt, snd result) else searchDt c dts
+        -- on recherche le constructeur dans les constructeurs de chaque type
+        -- algébrique de l'environnement Δ
+        rslt = searchDt cons denv
+        mytype = fst rslt
+        myargs = snd rslt
+    in if (length exps /= length myargs) then
+         Lerror ("Nombre d'arguments insuffisant pour " ++ 
+          "conctructeur " ++ show cons ++ ". Arguments passés: " ++ show exps)
+       else let verify _ _ = Ldatatype mytype
+                verify (e : es) (t : ts) = 
+                    if (check denv tenv e) == t then verify es ts
+                    else Lerror ("Type invalide pour argument " ++ show e ++
+                                    "du constructeur.")
+            in verify exps myargs
+check denv tenv (Lfilter e bs) = Lint -- a faire
 
 ---------------------------------------------------------------------------
 -- Interpréteur/compilateur                                              --
