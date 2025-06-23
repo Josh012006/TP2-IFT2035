@@ -608,9 +608,10 @@ eval xs (Ldef defs exp)
                  newXs = fst newEnv
                  newVs = snd newEnv
              in (eval newXs exp) newVs
-eval xs le@(Ladt dt )
-    --
-    =
+eval xs (Ladt _ _ exp)
+    -- Le type algébrique ne sert que pour la vérificationd e type
+    -- on retourne juste l'évaluation de sont expression.
+    = \vs -> (eval xs exp) vs
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
 ---------------------------------------------------------------------------
