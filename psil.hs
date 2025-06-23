@@ -1,4 +1,4 @@
--- TP-1  --- Implantation d'une sorte de Lisp          -*- coding: utf-8 -*-
+-- TP-2  --- Implantation d'une sorte de Lisp          -*- coding: utf-8 -*-
 {-# OPTIONS_GHC -Wall #-}
 
 -- Ce fichier défini les fonctionalités suivantes:
@@ -243,7 +243,10 @@ s2l (Snum n) = Lnum n
 s2l (Ssym s) = Lvar s
 s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
-      let mkabs (Scons (Scons Snil (Ssym arg)) (stype)) 
+      let mkabs (Scons Snil (Scons (Scons Snil (Ssym arg)) (stype)))
+            -- traitement particulier de la première déclaration
+              = mkabs (Scons (Scons Snil (Ssym arg)) (stype)) 
+          mkabs (Scons (Scons Snil (Ssym arg)) (stype)) 
               = Labs (arg, (identify stype)) (s2l sbody)
           mkabs (Scons sexp 
                     (Scons (Scons Snil (Ssym arg)) (stype)))
@@ -558,14 +561,14 @@ eval xs (Lvar x)
       -- À l'exécution, on peut directement extraire notre valeur de VS
       -- sans comparer des noms de variables.
       in \vs -> vs !! pos
-eval xs (Labs (x, _) exp) 
+eval xs (Labs (x, _) e) 
     -- On renvoie une primitive qui prend la valeur attendue de la variable 
     -- muette. Elle fait l'évaluation de l'expression en ajoutant
     -- le nom de la variable à XS. Cette évaluation nous renvoie une fonction
     -- qui attend l'environnement des variables VS. On ajoute donc la valeur 
     -- réelle de notre variable à cet environnement. En faisant ainsi, on 
     -- respecte tous les types attendus.
-    = \vs -> Vprim (\y -> (eval (x:xs) exp) (y:vs))
+    = \vs -> Vprim (\y -> (eval (x:xs) e) (y:vs))
 eval xs (Lapply e1 e2)
     -- On s'attend à ce que e1 auquel on a passé VS soit une primitive.
     -- Si tel est le cas, on l'applique à e2 auquel on a passé aussi vs.
@@ -574,28 +577,28 @@ eval xs (Lapply e1 e2)
         _ -> error ("Une fonction était attendue: " ++ show e1)
 eval xs (Lnew c exps) 
     = \vs -> Vcons c (map (\e -> (eval xs e) vs) exps)
-eval xs le@(Lfilter exp brs)
+eval xs le@(Lfilter e brs)
     -- On vérifie qu'il y a un branchement qui correspond à la forme de notre
-    -- expression. S'il s'agit d'une branche de type (_ e), on renvoie juste 
-    -- l'évaluation de l'expression e à laquelle on applique VS pour  
+    -- expression. S'il s'agit d'une branche de type (_ be), on renvoie juste 
+    -- l'évaluation de l'expression be à laquelle on applique VS pour  
     -- obtenir une Value. S'il s'agit d'une branche avec constructeur, on 
     -- vérifie que le constructeur est le bon et aussi que le nombre d'arguments
     -- est suffisant (une vérification supplémentaire à celle de check ne 
     -- ferait pas de mal). Si c'est le cas, on modifie XS et VS, pour associer 
-    -- les variables muettes à leur valeurs avant de faire l'évaluation de e.
+    -- les variables muettes à leur valeurs avant de faire l'évaluation de be.
     = \vs -> let match [] = error ("Aucun branchement " ++ 
                                         "correspondant: " ++ show le)
-                 match ((Nothing, e): _) = (eval xs e) vs
-                 match ((Just (c, vars), e):bs) = case ((eval xs exp) vs) of
+                 match ((Nothing, be): _) = (eval xs be) vs
+                 match ((Just (c, vars), be):bs) = case ((eval xs e) vs) of
                     (Vcons cons vals) -> if c /= cons then match bs
                         else if length vars /= length vals 
                              then error("Nombre insuffisant de variables " ++ 
                                     "pour le constructeur: " ++ c)
-                             else (eval (vars ++ xs) e) (vals ++ vs)
+                             else (eval (vars ++ xs) be) (vals ++ vs)
                     _ -> match bs  -- On continue. Il se peut qu'on rencontre 
-                                   -- une branche du type (_ e).
+                                   -- une branche du type (_ be).
              in match brs
-eval xs (Ldef defs exp)
+eval xs (Ldef defs e)
     -- On se sert de l'évaluation paresseuse de Haskell pour former de 
     -- nouveaux environnements pour évaluer exp. Ces environnements sont 
     -- définis de telle manière à permettre les définitions récursives et
@@ -607,11 +610,11 @@ eval xs (Ldef defs exp)
                  newEnv = env' defs xs vs
                  newXs = fst newEnv
                  newVs = snd newEnv
-             in (eval newXs exp) newVs
-eval xs (Ladt _ _ exp)
+             in (eval newXs e) newVs
+eval xs (Ladt _ _ e)
     -- Le type algébrique ne sert que pour la vérificationd e type
     -- on retourne juste l'évaluation de sont expression.
-    = \vs -> (eval xs exp) vs
+    = \vs -> (eval xs e) vs
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
 ---------------------------------------------------------------------------

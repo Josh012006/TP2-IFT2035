@@ -7,7 +7,7 @@
 ((abs ((x1 (Int -> Int -> Int))
       (x2 Int)
       (x3 Int))
-    (x1 x2 x3)) (+) 2 3)                                             ; ↝ 5
+    (x1 x2 x3)) + 2 3)                                               ; ↝ 5
 
 (adt ListInt
     ((nil:)
@@ -17,3 +17,4 @@
         (odd ((xs ListInt))
          (filter xs (nil: 1) ((cons: x xs) (even xs)))))
     (odd (new cons: 2 (new cons: 3 (new nil:))))))                   ; ↝ 1
+
