@@ -558,8 +558,23 @@ eval xs (Lvar x)
       -- À l'exécution, on peut directement extraire notre valeur de VS
       -- sans comparer des noms de variables.
       in \vs -> vs !! pos
--- COMPLÉTER ICI!!
-eval _ _ = error("eval")
+eval xs (Labs (x, _) exp) 
+    -- On renvoie une primitive qui prend la valeur attendue de la variable 
+    -- muette. Elle fait l'évaluation de l'expression en ajoutant
+    -- le nom de la variable à XS. Cette évaluation nous renvoie une fonction
+    -- qui attend l'environnement des variables VS. On ajoute donc la valeur 
+    -- réelle de notre variable à cet environnement. En faisant ainsi, on 
+    -- respecte tous les types attendus.
+    = \vs -> Vprim (\y -> (eval (x:xs) exp) (y:vs))
+eval xs (Lapply e1 e2)
+    -- On s'attend à ce que e1 auquel on a passé VS soit une primitive.
+    -- Si tel est le cas, on l'applique à e2 auquel on a passé aussi vs.
+    = \vs -> case ((eval xs e1) vs) of
+        (Vprim f) -> f ((eval xs e2) vs)
+        _ -> error ("Une fonction était attendue: " ++ show e1)
+eval xs (Lnew c exps) 
+    = \vs -> Vcons c (map (\e -> (eval xs e) vs) exps)
+eval xs (Lfilter e) --[(Maybe (Constructor, [Var]), Lexp)]
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
 ---------------------------------------------------------------------------
