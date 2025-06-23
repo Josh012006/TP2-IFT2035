@@ -1,4 +1,4 @@
--- TP-1  --- Implantation d'une sorte de Lisp          -*- coding: utf-8 -*-
+-- TP-2  --- Implantation d'une sorte de Lisp          -*- coding: utf-8 -*-
 {-# OPTIONS_GHC -Wall #-}
 
 -- Ce fichier défini les fonctionalités suivantes:
@@ -24,7 +24,7 @@ data Sexp = Snil                        -- La liste vide
           | Snum Int                    -- Un entier
           -- Génère automatiquement un pretty-printer et une fonction de
           -- comparaison structurelle.
-          deriving (Show, Eq)
+          deriving (Show, Eq) 
 
 -- Exemples:
 -- (+ 2 3)  ==  (((() . +) . 2) . 3)
@@ -194,23 +194,28 @@ showSexp e = showSexp' e ""
 type Var = String
 type Constructor = Var
 type Lpat = Maybe (Constructor, [Var])
+type Func = Bool                        -- Func précise si c'est une fonction
+type Defs = Maybe (Ltype, Func)         -- Le type d'une définition locale
+type Lcons = (Constructor, [Ltype])     -- Définition de constructeur.
 type TVar = Var
 
 data Ltype = Lint               -- Le type des nombres entiers.
            | Limply Ltype Ltype -- Le type d'une abstraction.
            | Ldatatype TVar     -- Le nom d'un type algébrique.
+           | Ldummy Var         -- Le type bidon.
            | Lerror String      -- Erreur de typage.
           deriving (Show, Eq)
 
 data Lexp = Lnum Int                    -- Constante entière.
           | Lvar Var                    -- Référence à une variable.
-          | Labs Var Lexp               -- Fonction anonyme prenant un argument.
+          | Labs (Var, Ltype) Lexp      -- Fonction anonyme prenant un argument.
           | Lapply Lexp Lexp            -- Appel de fonction, avec un argument.
           | Lnew Constructor [Lexp]
           | Lfilter Lexp [(Lpat, Lexp)] -- Filtrage.
           -- Déclaration d'une liste de variables qui peuvent être
           -- mutuellement récursives.
-          | Ldef [(Var, Lexp)] Lexp
+          | Ldef [((Var, Defs), Lexp)] Lexp
+          | Ladt TVar [Lcons] Lexp      -- Définition de type algébrique.
           deriving (Show, Eq)
 
 ---------------------------------------------------------------------------
@@ -221,7 +226,21 @@ sexp2revlist :: Sexp -> [Sexp]
 sexp2revlist Snil = []
 sexp2revlist (Scons ses se) = se : sexp2revlist ses
 sexp2revlist se = error ("Pas une liste: " ++ show se)
-            
+
+-- Une fonction pour reconnaitre à partir de la chaine de caractère lue,
+-- le type associé
+identify :: Sexp -> Ltype
+identify (Ssym "Int") = Lint -- (x Int)
+identify (Ssym dt) = Ldatatype dt -- (x dt)
+identify (Scons Snil t) = identify t
+identify se@(Scons (Scons _ (Ssym "->")) (Ssym _)) -- (x (t1 -> t2))
+    = let stypes = reverse (sexp2revlist se)
+          t1 = head stypes
+          t2 = reverse (tail (tail stypes))
+          revlist2sexp [] = Snil
+          revlist2sexp (x:xs) = Scons (revlist2sexp xs) x
+      in Limply (identify t1) (identify (revlist2sexp t2))
+identify se = error ("Declaration de type non reconnue: " ++ show se)
 
 -- Première passe simple qui analyse un Sexp et construit une Lexp équivalente.
 s2l :: Sexp -> Lexp
@@ -230,13 +249,23 @@ s2l (Ssym s) = Lvar s
 s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
       let mkabs [] = s2l sbody
-          mkabs ((Ssym arg) : sargs') = Labs arg (mkabs sargs')
-          mkabs (sarg : _) = error ("Argument formel non reconnu: " ++ show sarg)
-      in mkabs (sexp2revlist sargs)
+          mkabs (sarg:args) = Labs (mkabs' sarg) (mkabs args)
+          mkabs' (Scons (Scons Snil (Ssym arg)) (stype)) 
+              = (arg, (identify stype))
+          mkabs' sabs 
+              = error ("Argument formel non reconnu: " ++ show sabs)
+      in mkabs (reverse (sexp2revlist sargs))
   [Ssym "def", decls, sbody] ->
-      let s2d (Scons (Scons Snil (Ssym var)) sdef) = (var, s2l sdef)
-          s2d (Scons (Scons (Scons Snil (Ssym var)) sargs) sdef)
-              = (var, s2l (Scons (Scons (Scons Snil (Ssym "abs")) sargs) sdef))
+      let s2d (Scons (Scons Snil (Ssym var)) sdef) = ((var, Nothing), s2l sdef)
+          s2d (Scons (Scons (Scons Snil (Ssym var)) (stype)) sdef) 
+            -- déclaration avec type
+            = ((var, Just ((identify stype), False)), s2l sdef)
+          s2d (Scons (Scons 
+                        (Scons (Scons Snil (Ssym var)) sargs) (rtype)) 
+                    sdef)
+            -- rtype est le type de retour
+            = ((var, Just ((identify rtype), True)),
+                    s2l (Scons (Scons (Scons Snil (Ssym "abs")) sargs) sdef))
           s2d decl = error ("Declaration non reconnue: " ++ show decl)
       in Ldef (map s2d (reverse (sexp2revlist decls))) (s2l sbody)
   [Ssym "if", scond, sthen, selse] ->
@@ -251,11 +280,19 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
           s2p (Ssym cons) = Just (cons, [])
           s2p spat@(Scons _ _) = case reverse (sexp2revlist spat) of
             (Ssym cons) : sargs -> Just (cons, map s2v sargs)
-            ses -> error ("constructeur non reconnu: " ++ show (head ses))
+            ses -> error ("Constructeur non reconnu: " ++ show (head ses))
           s2p spat = error ("Motif non reconnu: " ++ show spat)
           s2b (Scons (Scons Snil spat) sbody) = (s2p spat, s2l sbody)
           s2b sbranch = error ("Branche non reconnue: " ++ show sbranch)
       in Lfilter (s2l starget) (map s2b sbranches)
+  [Ssym "adt", Ssym dt, tags, sbody] ->   -- définition de type algébrique
+      let s2lcons ((Ssym c) : stypes) 
+              = (c, (map identify stypes))
+          s2lcons a = error ("Definition de constructeur inconnue: " ++ show a)
+          s2a Snil = []
+          s2a (Scons sexp a) = s2lcons (reverse (sexp2revlist a)): s2a sexp
+          s2a tag = error ("Definition de constructeur inconnue: " ++ show tag)
+      in Ladt dt (reverse (s2a tags)) (s2l sbody)
   sfun : sargs ->
       foldl (\ l sarg -> Lapply l (s2l sarg)) (s2l sfun) sargs
   [] -> error "Impossible"
@@ -341,13 +378,165 @@ type TEnv = [(Var, Ltype)]
 tenv0 :: TEnv
 tenv0 = map (\(x,t,_v) -> (x,t)) env0
 
+-- Une fonction qui permet d'accepter le type dummy lors de la vérification pour
+-- ne pas bloquer inutilement le programmeur
+equalOrDummy :: Ltype -> Ltype -> Bool
+equalOrDummy (Ldummy _) (Lerror _) = False
+equalOrDummy (Lerror _) (Ldummy _) = False
+equalOrDummy (Ldummy _) _ = True
+equalOrDummy _ (Ldummy _) = True
+equalOrDummy (Limply a1 b1) (Limply a2 b2) = 
+    equalOrDummy a1 a2 && equalOrDummy b1 b2
+equalOrDummy a1 a2 = a1 == a2
+
 -- Fonction central de la vérification des types.
 -- Elle implémente le jugement `Δ;Γ ⊢ e : τ`.
 -- Δ, Γ, et e sont les trois arguments et elle renvoie le τ correspondant.
 check :: DTEnv -> TEnv -> Lexp -> Ltype
 check _ _ (Lnum _) = Lint
--- COMPLÉTER ICI!!
-
+check _ tenv (Lvar x) = 
+    let search y [] = error ("Variable non retrouvee dans " ++  
+                                  "l'environnement de type: " ++ show y)
+        search y ((v, vtype): vs) = if v == y then vtype else search y vs
+    in search x tenv  -- on recherche le type dans l'environnement Γ
+check denv tenv (Lapply e1 e2) 
+    -- On vérifie premièrement que e1 est de type fonction puis que le type
+    -- de e2 est le type de paramètre de e1
+    = case (check denv tenv e1) of
+        (Limply t1 t2) -> case (check denv tenv e2) of
+            t -> if equalOrDummy t t1 then t2 
+                else Lerror("Le parametre n'a pas le type attendu: " ++ show e2)
+        _ -> Lerror ("Une fonction etait attendue: " ++ show e1)
+check denv tenv (Labs (x, xtype) e) 
+    = let checkedBody = (check denv ((x, xtype) : tenv) e)
+      in case checkedBody of 
+        err@(Lerror _) -> err -- vérifie s'il n'y a pas eu d'erreur en chemin
+        _ -> Limply xtype checkedBody
+check denv tenv (Ldef defs e) = 
+    let dummyEnv 
+        -- Environnement simple avec les types bidon et les types attendus
+            = let record ((xi, Nothing), _) = (xi, Ldummy xi)
+                  record ((xi, Just (ti, False)), _) = (xi, ti)
+                  record ((xi, Just (ti, True)), _) 
+                    = (xi, Limply (Ldummy xi) ti)
+              in map record defs
+        tenv'' = dummyEnv ++ tenv
+        -- Recherche de type en utilisant les types bidon
+        dummytypes = map (\((xi, _), ei) -> (xi, check denv tenv'' ei)) defs
+        find x [] = error ("Variable non retrouvee: " ++ x)
+        find x ((xi, xtype) : xs) = if xi == x then xtype else find x xs
+        -- Une fonction qui remplace les types bidons par les bonnes valeurs
+        deleteDummy t = delete t [] where
+            delete (Ldummy x) seen = if x `elem` seen then (Ldummy x)
+                else delete (find x dummytypes) (x : seen)
+            delete (Limply e1 e2) seen 
+                = Limply (delete e1 seen) (delete e2 seen)
+            delete t' _ = t'
+        -- Vérification de la conformité en remplaçant les types bidons
+        verify ((xi, di), ei) 
+            = let checked = deleteDummy (find xi dummytypes)
+              in case di of
+                -- Cas d'une déclaration non récursive (x e)
+                (Nothing) -> (xi, checked)
+                -- Si c'est une expression de type (x τ e), on vérifie juste que
+                -- le type de e est le même que celui de τ
+                (Just (ti, False)) -> if equalOrDummy checked ti then (xi, ti)
+                    else (xi, Lerror ("L'expression " ++ show e ++
+                                    " n'a pas le type attendu " ++ show ti))
+                -- Si c'est une déclaration de fonction, on vérifie que le type
+                -- de retour τ est le même que le type de retour de e  
+                (Just (ti, True)) -> case checked of
+                    (Limply _ rtype) -> if equalOrDummy ti rtype 
+                        then (xi, checked) 
+                        else (xi, Lerror ("Type de retour de " ++ 
+                                        show ei ++ " incorrect."))
+                    _ -> (xi, 
+                            Lerror ("Une fonction etait attendue: " ++ show ei))
+        -- On forme finalement l'environnement utilisé pour évaluer 
+        -- le body du Ldef
+        verified = (map verify defs)
+        noError [] = (True, Nothing)
+        noError ((_, xtype): xs) = case xtype of
+            err@(Lerror _) -> (False, Just err)
+            _ -> noError xs
+        tenv' = verified ++ tenv
+    in -- on vérifie qu'il n'y a pas eu d'erreur en chemin
+       let problemFree = (noError verified)
+       in if fst problemFree then check denv tenv' e 
+          else case (snd problemFree) of
+            (Just err) -> err
+            _ -> error("Une erreur est survenue.")
+check denv tenv (Ladt dt as e) = check ((dt, as) : denv) tenv e
+check denv tenv (Lnew cons exps) = 
+    let searchC _ [] = (False, [])
+        searchC c ((ct, args) : cs) 
+            = if ct == c then (True, args) else searchC c cs
+        searchDt c [] = error ("Constructeur inconnu: " ++ show c)
+        searchDt c ((dt, cs): dts) = 
+            let result = (searchC c cs) 
+            in if fst result then (dt, snd result) else searchDt c dts
+        -- on recherche le constructeur dans les constructeurs de chaque type
+        -- algébrique de l'environnement Δ
+        rslt = searchDt cons denv
+        mytype = fst rslt
+        myargs = snd rslt
+    -- on vérifie ensuite qu'on a le bon nombre d'arguments mais aussi qu'ils 
+    -- ont le bon type
+    in if (length exps /= length myargs) then
+         Lerror ("Nombre d'arguments insuffisant pour " ++ 
+          "conctructeur " ++ show cons ++ ". Arguments passes: " ++ show exps)
+       else let verify [] (_:_) 
+                    = Lerror ("Nombre d'arguments insuffisant pour " ++ 
+                        "conctructeur " ++ show cons ++ 
+                        ". Arguments passes: " ++ show exps)
+                verify (_:_) [] 
+                    = Lerror ("Nombre d'arguments insuffisant pour " ++ 
+                        "conctructeur " ++ show cons ++ 
+                        ". Arguments passés: " ++ show exps)
+                verify [] [] = Ldatatype mytype
+                verify (e : es) (t : ts) = 
+                    if equalOrDummy (check denv tenv e) t then verify es ts
+                    else Lerror ("Type invalide pour argument " ++ show e ++
+                                    "du constructeur " ++ show cons)
+            in verify exps myargs
+check _ _ le@(Lfilter _ []) = Lerror ("Des branchements sont necessaires " ++
+                                    "pour le filtrage: " ++ show le)
+check denv tenv (Lfilter e (b : bs)) = case (check denv tenv e) of
+    (Ldatatype d) -> let 
+        -- on recherche le type algébrique dans Δ et on renvoie les informations
+        -- sur ses constructeurs
+        searchDt mydt [] = error ("Type algebrique inconnu: " ++ show mydt)
+        searchDt mydt ((dt, cs): dts) = 
+            if dt == mydt then cs else searchDt mydt dts
+        -- on recherche un constructeur dans la liste des constructeurs et 
+        -- on renvoie les informations sur les types de ses arguments
+        searchC c [] = error ("Constructeur " ++ show c ++ 
+                               " non trouve pour le type algebrique " ++ show d)
+        searchC c ((c1, types) : cs) = if c1 == c then types else searchC c cs
+        -- on cherche le type τ de l'expression renvoyée pour le branchement
+        cons = searchDt d denv
+        seekt br = case br of
+            (Nothing, body) -> check denv tenv body 
+            (Just (c, args), body) -> let 
+                types = searchC c cons
+                -- on vérifie que les arguments existent tous et sont du
+                -- bon nombre
+                valid = (length types) == (length args)
+              in if not valid then 
+                  Lerror ("Branchement invalide: " ++ show br)
+                 else check denv ((zip args types) ++ tenv) body
+        -- on recherche le type renvoyé par le premier branchement tout en 
+        -- vérifiant que c'est un branchement valide
+        expectedT = seekt b
+        -- on vérifie que le type renvoyé par les branchements est uniforme
+        allEquals [] = True
+        allEquals (b2 : brs) = (equalOrDummy (seekt b2) expectedT) 
+                                                            && (allEquals brs)
+        correct = allEquals bs
+      in if correct then expectedT
+         else Lerror ("Les corps des branchements " ++ 
+                        "doivent tous avoir le meme type: " ++ show ((b : bs)))
+    _ -> Lerror ("Un type algebrique est attendu pour le filtrage: " ++ show e)
 
 ---------------------------------------------------------------------------
 -- Interpréteur/compilateur                                              --
@@ -375,8 +564,60 @@ eval xs (Lvar x)
       -- À l'exécution, on peut directement extraire notre valeur de VS
       -- sans comparer des noms de variables.
       in \vs -> vs !! pos
--- COMPLÉTER ICI!!
-
+eval xs (Labs (x, _) e) 
+    -- On renvoie une primitive qui prend la valeur attendue de la variable 
+    -- muette. Elle fait l'évaluation de l'expression en ajoutant
+    -- le nom de la variable à XS. Cette évaluation nous renvoie une fonction
+    -- qui attend l'environnement des variables VS. On ajoute donc la valeur 
+    -- réelle de notre variable à cet environnement. En faisant ainsi, on 
+    -- respecte tous les types attendus.
+    = \vs -> Vprim (\y -> (eval (x:xs) e) (y:vs))
+eval xs (Lapply e1 e2)
+    -- On s'attend à ce que e1 auquel on a passé VS soit une primitive.
+    -- Si tel est le cas, on l'applique à e2 auquel on a passé aussi vs.
+    = \vs -> case ((eval xs e1) vs) of
+        (Vprim f) -> f ((eval xs e2) vs)
+        _ -> error ("Une fonction etait attendue: " ++ show e1)
+eval xs (Lnew c exps) 
+    = \vs -> Vcons c (map (\e -> (eval xs e) vs) exps)
+eval xs le@(Lfilter e brs)
+    -- On vérifie qu'il y a un branchement qui correspond à la forme de notre
+    -- expression. S'il s'agit d'une branche de type (_ be), on renvoie juste 
+    -- l'évaluation de l'expression be à laquelle on applique VS pour  
+    -- obtenir une Value. S'il s'agit d'une branche avec constructeur, on 
+    -- vérifie que le constructeur est le bon et aussi que le nombre d'arguments
+    -- est suffisant (une vérification supplémentaire à celle de check ne 
+    -- ferait pas de mal). Si c'est le cas, on modifie XS et VS, pour associer 
+    -- les variables muettes à leur valeurs avant de faire l'évaluation de be.
+    = \vs -> let match [] = error ("Aucun branchement " ++ 
+                                        "correspondant: " ++ show le)
+                 match ((Nothing, be): _) = (eval xs be) vs
+                 match ((Just (c, vars), be):bs) = case ((eval xs e) vs) of
+                    (Vcons cons vals) -> if c /= cons then match bs
+                        else if length vars /= length vals 
+                             then error("Nombre insuffisant de variables " ++ 
+                                    "pour le constructeur: " ++ c)
+                             else (eval (vars ++ xs) be) (vals ++ vs)
+                    _ -> match bs  -- On continue. Il se peut qu'on rencontre 
+                                   -- une branche du type (_ be).
+             in match brs
+eval xs (Ldef defs e)
+    -- On se sert de l'évaluation paresseuse de Haskell pour former de 
+    -- nouveaux environnements pour évaluer exp. Ces environnements sont 
+    -- définis de telle manière à permettre les définitions récursives et
+    -- mutuellement récursive. On aura pas de dépendance circulaire puisqu'ici
+    -- on obtient toujours une valeur à la fin.
+    = \vs -> let env' [] accXs accVs = (accXs, accVs)
+                 env' (((x, _), de):ds) accXs accVs 
+                    = env' ds (x:accXs) (((eval newXs de) newVs):accVs)
+                 newEnv = env' defs xs vs
+                 newXs = fst newEnv
+                 newVs = snd newEnv
+             in (eval newXs e) newVs
+eval xs (Ladt _ _ e)
+    -- Le type algébrique ne sert que pour la vérification de type
+    -- on retourne juste l'évaluation de sont expression.
+    = \vs -> (eval xs e) vs
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
 ---------------------------------------------------------------------------
