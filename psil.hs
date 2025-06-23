@@ -574,7 +574,28 @@ eval xs (Lapply e1 e2)
         _ -> error ("Une fonction était attendue: " ++ show e1)
 eval xs (Lnew c exps) 
     = \vs -> Vcons c (map (\e -> (eval xs e) vs) exps)
-eval xs (Lfilter e) --[(Maybe (Constructor, [Var]), Lexp)]
+eval xs le@(Lfilter exp brs)
+    -- On vérifie qu'il y a un branchement qui correspond à la forme de notre
+    -- expression. S'il s'agit d'une branche de type (_ e), on renvoie juste 
+    -- l'évaluation de l'expression e à laquelle on applique VS pour  
+    -- obtenir une Value. S'il s'agit d'une branche avec constructeur, on 
+    -- vérifie que le constructeur est le bon et aussi que le nombre d'arguments
+    -- est suffisant (une vérification supplémentaire à celle de check ne 
+    -- ferait pas de mal). Si c'est le cas, on modifie XS et VS, pour associer 
+    -- les variables muettes à leur valeusrs avant de faire l'évaluation de e.
+    = \vs -> let match [] = error ("Aucun branchement " ++ 
+                                        "correspondant: " ++ show le)
+                 match ((Nothing, e): _) = (eval xs e) vs
+                 match ((Just (c, vars), e):bs) = case ((eval xs exp) vs) of
+                    (Vcons cons vals) -> if c /= cons then match bs
+                        else if length vars /= length vals 
+                             then error("Nombre insuffisant de variables " ++ 
+                                    "pour le constructeur: " ++ c)
+                             else (eval (vars ++ xs) e) (vals ++ vs)
+                    _ -> match bs  -- On continue. Il se peut qu'on rencontre 
+                                   -- une branche du type (_ e).
+             in match brs
+
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
 ---------------------------------------------------------------------------
