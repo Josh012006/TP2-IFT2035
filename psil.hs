@@ -245,9 +245,9 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
       let mkabs (Scons (Scons Snil (Ssym arg)) (stype)) 
               = Labs (arg, (identify stype)) (s2l sbody)
-          mkabs (Scons se 
+          mkabs (Scons sexp 
                     (Scons (Scons Snil (Ssym arg)) (stype)))
-              = Labs (arg, (identify stype)) (mkabs se)
+              = Labs (arg, (identify stype)) (mkabs sexp)
           mkabs sabs 
               = error ("Argument formel non reconnu: " ++ show sabs)
       in mkabs sargs
@@ -286,7 +286,7 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
               = (c, (map (\stype -> (identify stype)) stypes))
           s2lcons a = error ("Définition de constructeur inconnue: " ++ show a)
           s2a Snil = []
-          s2a (Scons se a) = s2lcons (reverse (sexp2revlist a)): s2a se
+          s2a (Scons sexp a) = s2lcons (reverse (sexp2revlist a)): s2a sexp
           s2a tag = error ("Défintion de constructeur inconnue: " ++ show tag)
       in Ladt dt (reverse (s2a tags)) (s2l sbody)
   sfun : sargs ->
@@ -374,6 +374,15 @@ type TEnv = [(Var, Ltype)]
 tenv0 :: TEnv
 tenv0 = map (\(x,t,_v) -> (x,t)) env0
 
+-- Une fonction qui permet d'accepter le type dummy lors de la vérification pour
+-- ne pas bloquer inutilement le programmeur
+equalOrDummy :: Ltype -> Ltype -> Bool
+equalOrDummy (Ldummy _) _ = True
+equalOrDummy _ (Ldummy _) = True
+equalOrDummy (Limply a1 b1) (Limply a2 b2) = 
+    equalOrDummy a1 a2 && equalOrDummy b1 b2
+equalOrDummy a1 a2 = a1 == a2
+
 -- Fonction central de la vérification des types.
 -- Elle implémente le jugement `Δ;Γ ⊢ e : τ`.
 -- Δ, Γ, et e sont les trois arguments et elle renvoie le τ correspondant.
@@ -389,7 +398,7 @@ check denv tenv (Lapply e1 e2)
 -- de e2 est le type de paramètre de e1
     = case (check denv tenv e1) of
         (Limply t1 t2) -> case (check denv tenv e2) of
-            t -> if t == t1 then t2 
+            t -> if equalOrDummy t t1 then t2 
                 else Lerror("Le paramètre n'a pas le type attendu: " ++ show e2)
         _ -> Lerror ("Une fonction était attendue: " ++ show e1)
 check denv tenv (Labs (x, xtype) e) 
@@ -401,32 +410,38 @@ check denv tenv (Ldef defs e) =
     let dummyEnv 
         -- Environnement simple avec les types bidon et les types attendus
             = let record ((xi, Nothing), _) = (xi, Ldummy xi)
-                  record ((xi, Just (ti, _)), _) = (xi, ti)
+                  record ((xi, Just (ti, False)), _) = (xi, ti)
+                  record ((xi, Just (ti, True)), _) 
+                    = (xi, Limply (Ldummy xi) ti)
               in map record defs
-        env0 = dummyEnv ++ tenv
+        tenv'' = dummyEnv ++ tenv
         -- Recherche de type en utilisant les types bidon
-        dummytypes = map (\((xi, _), ei) -> (xi, check denv env0 ei)) defs
-        find x [] = error ("Variable non retrouvée.")
+        dummytypes = map (\((xi, _), ei) -> (xi, check denv tenv'' ei)) defs
+        find x [] = error ("Variable non retrouvée: " ++ x)
         find x ((xi, xtype) : xs) = if xi == x then xtype else find x xs
         -- Une fonction qui remplace les types bidons par les bonnes valeurs
-        deleteDummy (Ldummy x) = deleteDummy (find x dummytypes)
-        deleteDummy (Limply e1 e2) = Limply (deleteDummy e1) (deleteDummy e2)
-        deleteDummy t = t
+        deleteDummy t = delete t [] where
+            delete (Ldummy x) seen = if x `elem` seen then (Ldummy x)
+                else delete (find x dummytypes) (x : seen)
+            delete (Limply e1 e2) seen 
+                = Limply (delete e1 seen) (delete e2 seen)
+            delete t' _ = t'
         -- Vérification de la conformité en remplaçant les types bidons
         verify ((xi, di), ei) 
             = let checked = deleteDummy (find xi dummytypes)
               in case di of
                 -- Cas d'une déclaration non récursive (x e)
                 (Nothing) -> (xi, checked)
-                -- Si c'est une expression de type (x τ e), on vérifie juste que 
+                -- Si c'est une expression de type (x τ e), on vérifie juste que
                 -- le type de e est le même que celui de τ
-                (Just (ti, False)) -> if checked == ti then (xi, ti)
+                (Just (ti, False)) -> if equalOrDummy checked ti then (xi, ti)
                     else (xi, Lerror ("L'expression " ++ show e ++
                                     " n'a pas le type attendu " ++ show ti))
                 -- Si c'est une déclaration de fonction, on vérifie que le type
                 -- de retour τ est le même que le type de retour de e  
                 (Just (ti, True)) -> case checked of
-                    (Limply args rtype) -> if ti == rtype then (xi, checked) 
+                    (Limply _ rtype) -> if equalOrDummy ti rtype 
+                        then (xi, checked) 
                         else (xi, Lerror ("Type de retour de " ++ 
                                         show ei ++ " incorrect."))
                     _ -> (xi, 
@@ -459,15 +474,27 @@ check denv tenv (Lnew cons exps) =
         rslt = searchDt cons denv
         mytype = fst rslt
         myargs = snd rslt
+    -- on vérifie ensuite qu'on a le bon nombre d'arguments mais aussi qu'ils 
+    -- ont le bon type
     in if (length exps /= length myargs) then
          Lerror ("Nombre d'arguments insuffisant pour " ++ 
           "conctructeur " ++ show cons ++ ". Arguments passés: " ++ show exps)
-       else let verify _ _ = Ldatatype mytype
+       else let verify [] (_:_) 
+                    = Lerror ("Nombre d'arguments insuffisant pour " ++ 
+                        "conctructeur " ++ show cons ++ 
+                        ". Arguments passés: " ++ show exps)
+                verify (_:_) [] 
+                    = Lerror ("Nombre d'arguments insuffisant pour " ++ 
+                        "conctructeur " ++ show cons ++ 
+                        ". Arguments passés: " ++ show exps)
+                verify [] [] = Ldatatype mytype
                 verify (e : es) (t : ts) = 
-                    if (check denv tenv e) == t then verify es ts
+                    if equalOrDummy (check denv tenv e) t then verify es ts
                     else Lerror ("Type invalide pour argument " ++ show e ++
                                     "du constructeur.")
             in verify exps myargs
+check _ _ (Lfilter e []) = Lerror ("Des branchements sont nécessaires " ++
+                                    "pour le filtrage: " ++ show (Lfilter e []))
 check denv tenv (Lfilter e (b : bs)) = case (check denv tenv e) of
     (Ldatatype d) -> let 
         -- on recherche le type algébrique dans Δ et on renvoie les informations
@@ -483,23 +510,24 @@ check denv tenv (Lfilter e (b : bs)) = case (check denv tenv e) of
         -- on cherche le type τ de l'expression renvoyée pour le branchement
         cons = searchDt d denv
         seekt br = case br of
-            (Nothing, e) -> check denv tenv e 
-            (Just (c, args), e) -> let 
+            (Nothing, body) -> check denv tenv body 
+            (Just (c, args), body) -> let 
                 types = searchC c cons
                 -- on vérifie que les arguments existent tous et sont du
                 -- bon nombre
                 valid = (length types) == (length args)
               in if not valid then 
                   Lerror ("Branchement invalide: " ++ show br)
-                 else check denv ((zip args types) ++ tenv) e
+                 else check denv ((zip args types) ++ tenv) body
         -- on recherche le type renvoyé par le premier branchement tout en 
         -- vérifiant que c'est un branchement valide
         expectedT = seekt b
         -- on vérifie que le type renvoyé par les branchements est uniforme
         allEquals [] = True
-        allEquals (b2 : brs) = (seekt b2 == expectedT) && (allEquals brs)
+        allEquals (b2 : brs) = (equalOrDummy (seekt b2) expectedT) 
+                                                            && (allEquals brs)
         correct = allEquals bs
-      in if correct  then expectedT
+      in if correct then expectedT
          else Lerror ("Les corps des branchements " ++ 
                         "doivent tous avoir le même type: " ++ show ((b : bs)))
     _ -> Lerror ("Un type algébrique est attendu pour le filtrage: " ++ show e)
