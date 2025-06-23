@@ -195,7 +195,7 @@ type Var = String
 type Constructor = Var
 type Lpat = Maybe (Constructor, [Var])
 type Func = Bool                        -- Func précise si c'est une fonction
-type Defs = Maybe (Ltype, Func)        -- Le type d'une définition locale
+type Defs = Maybe (Ltype, Func)         -- Le type d'une définition locale
 type Lcons = (Constructor, [Ltype])     -- Définition de constructeur.
 type TVar = Var
 
@@ -582,7 +582,7 @@ eval xs le@(Lfilter exp brs)
     -- vérifie que le constructeur est le bon et aussi que le nombre d'arguments
     -- est suffisant (une vérification supplémentaire à celle de check ne 
     -- ferait pas de mal). Si c'est le cas, on modifie XS et VS, pour associer 
-    -- les variables muettes à leur valeusrs avant de faire l'évaluation de e.
+    -- les variables muettes à leur valeurs avant de faire l'évaluation de e.
     = \vs -> let match [] = error ("Aucun branchement " ++ 
                                         "correspondant: " ++ show le)
                  match ((Nothing, e): _) = (eval xs e) vs
@@ -595,7 +595,22 @@ eval xs le@(Lfilter exp brs)
                     _ -> match bs  -- On continue. Il se peut qu'on rencontre 
                                    -- une branche du type (_ e).
              in match brs
-
+eval xs (Ldef defs exp)
+    -- On se sert de l'évaluation paresseuse de Haskell pour former de 
+    -- nouveaux environnements pour évaluer exp. Ces environnements sont 
+    -- définis de telle manière à permettre les définitions récursives et
+    -- mutuellement récursive. On aura pas de dépendance circulaire puisqu'ici
+    -- on obtient toujours une valeur à la fin.
+    = \vs -> let env' [] accXs accVs = (accXs, accVs)
+                 env' (((x, _), de):ds) accXs accVs 
+                    = env' ds (x:accXs) (((eval newXs de) newVs):accVs)
+                 newEnv = env' defs xs vs
+                 newXs = fst newEnv
+                 newVs = snd newEnv
+             in (eval newXs exp) newVs
+eval xs le@(Ladt dt )
+    --
+    =
 ---------------------------------------------------------------------------
 -- Toplevel                                                              --
 ---------------------------------------------------------------------------
