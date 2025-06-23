@@ -291,7 +291,7 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
           s2lcons a = error ("Définition de constructeur inconnue: " ++ show a)
           s2a Snil = []
           s2a (Scons sexp a) = s2lcons (reverse (sexp2revlist a)): s2a sexp
-          s2a tag = error ("Défintion de constructeur inconnue: " ++ show tag)
+          s2a tag = error ("Définition de constructeur inconnue: " ++ show tag)
       in Ladt dt (reverse (s2a tags)) (s2l sbody)
   sfun : sargs ->
       foldl (\ l sarg -> Lapply l (s2l sarg)) (s2l sfun) sargs
@@ -458,7 +458,7 @@ check denv tenv (Ldef defs e) =
             err@(Lerror _) -> (False, Just err)
             _ -> noError xs
         tenv' = verified ++ tenv
-    in  -- on vérifie qu'il n'y a pas eu d'erreur en chemin
+    in -- on vérifie qu'il n'y a pas eu d'erreur en chemin
        let problemFree = (noError verified)
        in if fst problemFree then check denv tenv' e 
           else case (snd problemFree) of
