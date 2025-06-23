@@ -19,6 +19,12 @@
         Int (/ x 2)))
   (div2 y))                                                          ; ↝ 5
 
+(def ((y 9)
+      (divY ((x Int))
+        Int (/ x y)))
+  (divY 54))                                                         ; ↝ 6
+
+
 (adt ListInt
     ((nil:)
      (cons: Int ListInt))
