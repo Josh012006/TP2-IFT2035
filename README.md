@@ -22,7 +22,7 @@ Le langage Psil supporte :
 ## Structure du projet
 ```
 ├── psil.hs            # Code source Haskell fourni ; à compléter (s2l et eval)
-├── tests.psil         # Fichier de tests Psil : contient ≥ 5 exemples commentés
+├── tests.psil         # Fichier de tests Psil : contient ≥ 6 exemples commentés
 ├── rapport.tex        # Rapport (LaTeX) décrivant l’expérience et les choix
 └── README.md          # Ce fichier
 ```
