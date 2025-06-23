@@ -202,7 +202,7 @@ type TVar = Var
 data Ltype = Lint               -- Le type des nombres entiers.
            | Limply Ltype Ltype -- Le type d'une abstraction.
            | Ldatatype TVar     -- Le nom d'un type algébrique.
-           | Ldummy Var         -- Le type bidon 
+           | Ldummy Var         -- Le type bidon.
            | Lerror String      -- Erreur de typage.
           deriving (Show, Eq)
 
@@ -259,12 +259,12 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
       let s2d (Scons (Scons Snil (Ssym var)) sdef) = ((var, Nothing), s2l sdef)
           s2d (Scons (Scons (Scons Snil (Ssym var)) (stype)) sdef) 
             -- déclaration avec type
-              = ((var, Just ((identify stype), False)), s2l sdef)
+            = ((var, Just ((identify stype), False)), s2l sdef)
           s2d (Scons (Scons 
                         (Scons (Scons Snil (Ssym var)) sargs) (rtype)) 
                     sdef)
             -- rtype est le type de retour
-              = ((var, Just ((identify rtype), True)),
+            = ((var, Just ((identify rtype), True)),
                     s2l (Scons (Scons (Scons Snil (Ssym "abs")) sargs) sdef))
           s2d decl = error ("Declaration non reconnue: " ++ show decl)
       in Ldef (map s2d (reverse (sexp2revlist decls))) (s2l sbody)
@@ -287,7 +287,7 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
       in Lfilter (s2l starget) (map s2b sbranches)
   [Ssym "adt", Ssym dt, tags, sbody] ->   -- définition de type algébrique
       let s2lcons ((Ssym c) : stypes) 
-              = (c, (map (\stype -> (identify stype)) stypes))
+              = (c, (map identify stypes))
           s2lcons a = error ("Definition de constructeur inconnue: " ++ show a)
           s2a Snil = []
           s2a (Scons sexp a) = s2lcons (reverse (sexp2revlist a)): s2a sexp
@@ -381,6 +381,8 @@ tenv0 = map (\(x,t,_v) -> (x,t)) env0
 -- Une fonction qui permet d'accepter le type dummy lors de la vérification pour
 -- ne pas bloquer inutilement le programmeur
 equalOrDummy :: Ltype -> Ltype -> Bool
+equalOrDummy (Ldummy _) (Lerror _) = False
+equalOrDummy (Lerror _) (Ldummy _) = False
 equalOrDummy (Ldummy _) _ = True
 equalOrDummy _ (Ldummy _) = True
 equalOrDummy (Limply a1 b1) (Limply a2 b2) = 
@@ -398,8 +400,8 @@ check _ tenv (Lvar x) =
         search y ((v, vtype): vs) = if v == y then vtype else search y vs
     in search x tenv  -- on recherche le type dans l'environnement Γ
 check denv tenv (Lapply e1 e2) 
--- On vérifie premièrement que e1 est de type fonction puis que le type
--- de e2 est le type de paramètre de e1
+    -- On vérifie premièrement que e1 est de type fonction puis que le type
+    -- de e2 est le type de paramètre de e1
     = case (check denv tenv e1) of
         (Limply t1 t2) -> case (check denv tenv e2) of
             t -> if equalOrDummy t t1 then t2 
@@ -495,10 +497,10 @@ check denv tenv (Lnew cons exps) =
                 verify (e : es) (t : ts) = 
                     if equalOrDummy (check denv tenv e) t then verify es ts
                     else Lerror ("Type invalide pour argument " ++ show e ++
-                                    "du constructeur.")
+                                    "du constructeur " ++ show cons)
             in verify exps myargs
-check _ _ (Lfilter e []) = Lerror ("Des branchements sont necessaires " ++
-                                    "pour le filtrage: " ++ show (Lfilter e []))
+check _ _ le@(Lfilter _ []) = Lerror ("Des branchements sont necessaires " ++
+                                    "pour le filtrage: " ++ show le)
 check denv tenv (Lfilter e (b : bs)) = case (check denv tenv e) of
     (Ldatatype d) -> let 
         -- on recherche le type algébrique dans Δ et on renvoie les informations
@@ -613,7 +615,7 @@ eval xs (Ldef defs e)
                  newVs = snd newEnv
              in (eval newXs e) newVs
 eval xs (Ladt _ _ e)
-    -- Le type algébrique ne sert que pour la vérificationd e type
+    -- Le type algébrique ne sert que pour la vérification de type
     -- on retourne juste l'évaluation de sont expression.
     = \vs -> (eval xs e) vs
 ---------------------------------------------------------------------------
