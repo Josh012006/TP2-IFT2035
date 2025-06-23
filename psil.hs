@@ -240,7 +240,7 @@ identify se@(Scons (Scons _ (Ssym "->")) (Ssym _)) -- (x (t1 -> t2))
           revlist2sexp [] = Snil
           revlist2sexp (x:xs) = Scons (revlist2sexp xs) x
       in Limply (identify t1) (identify (revlist2sexp t2))
-identify se = error ("Déclaration de type non reconnue: " ++ show se)
+identify se = error ("Declaration de type non reconnue: " ++ show se)
 
 -- Première passe simple qui analyse un Sexp et construit une Lexp équivalente.
 s2l :: Sexp -> Lexp
@@ -280,7 +280,7 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
           s2p (Ssym cons) = Just (cons, [])
           s2p spat@(Scons _ _) = case reverse (sexp2revlist spat) of
             (Ssym cons) : sargs -> Just (cons, map s2v sargs)
-            ses -> error ("constructeur non reconnu: " ++ show (head ses))
+            ses -> error ("Constructeur non reconnu: " ++ show (head ses))
           s2p spat = error ("Motif non reconnu: " ++ show spat)
           s2b (Scons (Scons Snil spat) sbody) = (s2p spat, s2l sbody)
           s2b sbranch = error ("Branche non reconnue: " ++ show sbranch)
@@ -288,10 +288,10 @@ s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "adt", Ssym dt, tags, sbody] ->   -- définition de type algébrique
       let s2lcons ((Ssym c) : stypes) 
               = (c, (map (\stype -> (identify stype)) stypes))
-          s2lcons a = error ("Définition de constructeur inconnue: " ++ show a)
+          s2lcons a = error ("Definition de constructeur inconnue: " ++ show a)
           s2a Snil = []
           s2a (Scons sexp a) = s2lcons (reverse (sexp2revlist a)): s2a sexp
-          s2a tag = error ("Définition de constructeur inconnue: " ++ show tag)
+          s2a tag = error ("Definition de constructeur inconnue: " ++ show tag)
       in Ladt dt (reverse (s2a tags)) (s2l sbody)
   sfun : sargs ->
       foldl (\ l sarg -> Lapply l (s2l sarg)) (s2l sfun) sargs
@@ -393,7 +393,7 @@ equalOrDummy a1 a2 = a1 == a2
 check :: DTEnv -> TEnv -> Lexp -> Ltype
 check _ _ (Lnum _) = Lint
 check _ tenv (Lvar x) = 
-    let search y [] = error ("Variable non retrouvée dans " ++  
+    let search y [] = error ("Variable non retrouvee dans " ++  
                                   "l'environnement de type: " ++ show y)
         search y ((v, vtype): vs) = if v == y then vtype else search y vs
     in search x tenv  -- on recherche le type dans l'environnement Γ
@@ -403,8 +403,8 @@ check denv tenv (Lapply e1 e2)
     = case (check denv tenv e1) of
         (Limply t1 t2) -> case (check denv tenv e2) of
             t -> if equalOrDummy t t1 then t2 
-                else Lerror("Le paramètre n'a pas le type attendu: " ++ show e2)
-        _ -> Lerror ("Une fonction était attendue: " ++ show e1)
+                else Lerror("Le parametre n'a pas le type attendu: " ++ show e2)
+        _ -> Lerror ("Une fonction etait attendue: " ++ show e1)
 check denv tenv (Labs (x, xtype) e) 
     = let checkedBody = (check denv ((x, xtype) : tenv) e)
       in case checkedBody of 
@@ -421,7 +421,7 @@ check denv tenv (Ldef defs e) =
         tenv'' = dummyEnv ++ tenv
         -- Recherche de type en utilisant les types bidon
         dummytypes = map (\((xi, _), ei) -> (xi, check denv tenv'' ei)) defs
-        find x [] = error ("Variable non retrouvée: " ++ x)
+        find x [] = error ("Variable non retrouvee: " ++ x)
         find x ((xi, xtype) : xs) = if xi == x then xtype else find x xs
         -- Une fonction qui remplace les types bidons par les bonnes valeurs
         deleteDummy t = delete t [] where
@@ -449,7 +449,7 @@ check denv tenv (Ldef defs e) =
                         else (xi, Lerror ("Type de retour de " ++ 
                                         show ei ++ " incorrect."))
                     _ -> (xi, 
-                            Lerror ("Une fonction était attendue: " ++ show ei))
+                            Lerror ("Une fonction etait attendue: " ++ show ei))
         -- On forme finalement l'environnement utilisé pour évaluer 
         -- le body du Ldef
         verified = (map verify defs)
@@ -482,11 +482,11 @@ check denv tenv (Lnew cons exps) =
     -- ont le bon type
     in if (length exps /= length myargs) then
          Lerror ("Nombre d'arguments insuffisant pour " ++ 
-          "conctructeur " ++ show cons ++ ". Arguments passés: " ++ show exps)
+          "conctructeur " ++ show cons ++ ". Arguments passes: " ++ show exps)
        else let verify [] (_:_) 
                     = Lerror ("Nombre d'arguments insuffisant pour " ++ 
                         "conctructeur " ++ show cons ++ 
-                        ". Arguments passés: " ++ show exps)
+                        ". Arguments passes: " ++ show exps)
                 verify (_:_) [] 
                     = Lerror ("Nombre d'arguments insuffisant pour " ++ 
                         "conctructeur " ++ show cons ++ 
@@ -497,19 +497,19 @@ check denv tenv (Lnew cons exps) =
                     else Lerror ("Type invalide pour argument " ++ show e ++
                                     "du constructeur.")
             in verify exps myargs
-check _ _ (Lfilter e []) = Lerror ("Des branchements sont nécessaires " ++
+check _ _ (Lfilter e []) = Lerror ("Des branchements sont necessaires " ++
                                     "pour le filtrage: " ++ show (Lfilter e []))
 check denv tenv (Lfilter e (b : bs)) = case (check denv tenv e) of
     (Ldatatype d) -> let 
         -- on recherche le type algébrique dans Δ et on renvoie les informations
         -- sur ses constructeurs
-        searchDt mydt [] = error ("Type algébrique inconnu: " ++ show mydt)
+        searchDt mydt [] = error ("Type algebrique inconnu: " ++ show mydt)
         searchDt mydt ((dt, cs): dts) = 
             if dt == mydt then cs else searchDt mydt dts
         -- on recherche un constructeur dans la liste des constructeurs et 
         -- on renvoie les informations sur les types de ses arguments
         searchC c [] = error ("Constructeur " ++ show c ++ 
-                               " non trouvé pour le type algébrique " ++ show d)
+                               " non trouve pour le type algebrique " ++ show d)
         searchC c ((c1, types) : cs) = if c1 == c then types else searchC c cs
         -- on cherche le type τ de l'expression renvoyée pour le branchement
         cons = searchDt d denv
@@ -533,8 +533,8 @@ check denv tenv (Lfilter e (b : bs)) = case (check denv tenv e) of
         correct = allEquals bs
       in if correct then expectedT
          else Lerror ("Les corps des branchements " ++ 
-                        "doivent tous avoir le même type: " ++ show ((b : bs)))
-    _ -> Lerror ("Un type algébrique est attendu pour le filtrage: " ++ show e)
+                        "doivent tous avoir le meme type: " ++ show ((b : bs)))
+    _ -> Lerror ("Un type algebrique est attendu pour le filtrage: " ++ show e)
 
 ---------------------------------------------------------------------------
 -- Interpréteur/compilateur                                              --
@@ -575,7 +575,7 @@ eval xs (Lapply e1 e2)
     -- Si tel est le cas, on l'applique à e2 auquel on a passé aussi vs.
     = \vs -> case ((eval xs e1) vs) of
         (Vprim f) -> f ((eval xs e2) vs)
-        _ -> error ("Une fonction était attendue: " ++ show e1)
+        _ -> error ("Une fonction etait attendue: " ++ show e1)
 eval xs (Lnew c exps) 
     = \vs -> Vcons c (map (\e -> (eval xs e) vs) exps)
 eval xs le@(Lfilter e brs)
