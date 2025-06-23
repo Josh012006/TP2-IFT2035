@@ -233,8 +233,13 @@ identify :: Sexp -> Ltype
 identify (Ssym "Int") = Lint -- (x Int)
 identify (Ssym dt) = Ldatatype dt -- (x dt)
 identify (Scons Snil t) = identify t
-identify (Scons (Scons t1 (Ssym "->")) (Ssym t2)) -- (x (t1 -> t2))
-    = Limply (identify t1) (identify (Ssym t2))
+identify se@(Scons (Scons _ (Ssym "->")) (Ssym _)) -- (x (t1 -> t2))
+    = let stypes = reverse (sexp2revlist se)
+          t1 = head stypes
+          t2 = reverse (tail (tail stypes))
+          revlist2sexp [] = Snil
+          revlist2sexp (x:xs) = Scons (revlist2sexp xs) x
+      in Limply (identify t1) (identify (revlist2sexp t2))
 identify se = error ("Déclaration de type non reconnue: " ++ show se)
 
 -- Première passe simple qui analyse un Sexp et construit une Lexp équivalente.
@@ -243,17 +248,13 @@ s2l (Snum n) = Lnum n
 s2l (Ssym s) = Lvar s
 s2l se@(Scons _ _) = case reverse (sexp2revlist se) of
   [Ssym "abs", sargs, sbody] -> 
-      let mkabs (Scons Snil (Scons (Scons Snil (Ssym arg)) (stype)))
-            -- traitement particulier de la première déclaration
-              = mkabs (Scons (Scons Snil (Ssym arg)) (stype)) 
-          mkabs (Scons (Scons Snil (Ssym arg)) (stype)) 
-              = Labs (arg, (identify stype)) (s2l sbody)
-          mkabs (Scons sexp 
-                    (Scons (Scons Snil (Ssym arg)) (stype)))
-              = Labs (arg, (identify stype)) (mkabs sexp)
-          mkabs sabs 
+      let mkabs [] = s2l sbody
+          mkabs (sarg:args) = Labs (mkabs' sarg) (mkabs args)
+          mkabs' (Scons (Scons Snil (Ssym arg)) (stype)) 
+              = (arg, (identify stype))
+          mkabs' sabs 
               = error ("Argument formel non reconnu: " ++ show sabs)
-      in mkabs sargs
+      in mkabs (reverse (sexp2revlist sargs))
   [Ssym "def", decls, sbody] ->
       let s2d (Scons (Scons Snil (Ssym var)) sdef) = ((var, Nothing), s2l sdef)
           s2d (Scons (Scons (Scons Snil (Ssym var)) (stype)) sdef) 
