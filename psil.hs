@@ -406,6 +406,7 @@ check denv tenv (Lapply e1 e2)
         (Limply t1 t2) -> case (check denv tenv e2) of
             t -> if equalOrDummy t t1 then t2 
                 else Lerror("Le parametre n'a pas le type attendu: " ++ show e2)
+        err@(Lerror _) -> err
         _ -> Lerror ("Une fonction etait attendue: " ++ show e1)
 check denv tenv (Labs (x, xtype) e) 
     = let checkedBody = (check denv ((x, xtype) : tenv) e)

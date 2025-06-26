@@ -1,36 +1,81 @@
-;; Tester une définition de type algébrique
+;; Tests qui marchent autant à la compilataion qu'à l'exécution
 
-((abs ((x1 Int)
-      (x2 Int))
-    (+ x1 x2)) 1 6)                                                  ; ↝ 7
 
+;; Tester une fonction récursive , une définition locale de fonction
+;; et l'énoncé if
+;; La fonction de fibonacci
+(def 
+  ((fib ((n Int)) Int (if (<= n 1) (n) (+ (fib (- n 1)) (fib (- n 2))) )))
+  (fib 9))                                                           ; ↝ 34
+
+
+;; Tester une abstraction avec un appel currifié de fonction
 ((abs ((x1 (Int -> Int -> Int))
       (x2 Int)
       (x3 Int))
-    (x1 x2 x3)) + 21 3)                                              ; ↝ 24
+    (x1 x2 x3)) * 6 3)                                              ; ↝ 18
 
 
-(def ((x 8)
-      (y 3))
-  (+ x y))                                                           ; ↝ 11
+;; Tester une définition mutuellement récursive, la définition d'un type 
+;; algébrique, l'énoncé filter et l'énoncé new
 
-(def ((y 10)
-      (div2 ((x Int))
-        Int (/ x 2)))
-  (div2 y))                                                          ; ↝ 5
+(adt Tree
+    ((empty:)
+     (node: Tree Int Tree))
+  (def ((sumLeft ((t Tree))
+         Int (filter t (empty: 0) 
+                       ((node: l n r) (+ n (+ (sumRight l) (sumRight r))))))
+        (sumRight ((t Tree))
+         Int (filter t (empty: 0) 
+                       ((node: l n r) (+ n (+ (sumLeft l) (sumLeft r))))))
+       )
+    (sumLeft (new node: 
+      (new node: (new node: (new empty:) 5 
+          (new node: (new empty:) 4 (new empty:))) 9 (new empty:)) 
+      2 
+      (new node: (new node: (new empty:) 8 (new empty:)) 3 (new empty:))
+    ))
+))                                                                   ; ↝ 31
+
+
+
+
+
+;; Tests avec erreurs de type
+
+
+;; Le paramètre n'a pas le type attendu
 
 (def ((y 9)
       (divY ((x Int))
         Int (/ x y)))
-  (divY 54))                                                         ; ↝ 6
+  (divY +))                                                         ; ↝ error
 
+;; Les corps des branchements n'ont pas tous les mêmes types
+
+(adt String
+      ((nil:)
+       (char: Int String))
+    ((abs ((s String))
+       (filter s (nil: 0) ((char: c cs) cs)))
+      (new char: 64 (new char: 65 (new nil:))))
+)                                                                    ; ↝ error
+
+;; Une erreur au niveau du typage statique mais qui ne serait pas 
+;; remarquées à l'exécution
 
 (adt ListInt
-    ((nil:)
-     (cons: Int ListInt))
-  (def ((even ((xs ListInt))
-         Int (filter xs (nil: 0) ((cons: x xs) (odd xs))))
-        (odd ((xs ListInt))
-         Int (filter xs (nil: 1) ((cons: x xs) (even xs)))))
-    (odd (new cons: 2 (new cons: 3 (new nil:))))))                   ; ↝ 1
+      ((nil:) (cons: Int ListInt))
+  (def ((y 48)
+      (div6 ((x Int))
+        ListInt (/ x 6)))
+    (divY y)) )                                                      ; ↝ error
+
+
+
+
+
+
+
+
 
