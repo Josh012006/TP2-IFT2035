@@ -1,0 +1,82 @@
+\documentclass[11pt]{article}
+
+
+
+% Margins
+\topmargin=-0.45in
+\evensidemargin=0in
+\oddsidemargin=0in
+\textwidth=6.5in
+\textheight=9.0in
+\headsep=0.25in
+
+
+% Macros
+\newcommand{\eval}{\texttt{eval} }
+\newcommand{\ch}{\texttt{check} }
+\newcommand{\stol}{\texttt{s2l} }
+
+\newcommand{\lexp}{\textit{Lexp} }
+
+
+
+\title{Rapport TP2 - IFT 2035}
+\author{ Noms et Matricules : \vspace{0.2cm}\\
+	Josué Mongan (20290870) - David Stanescu (20314518)}
+\date{Date - 26 juin 2025}
+
+
+
+
+\begin{document}
+	\maketitle	
+	\pagebreak
+	
+	Le but du travail était cette fois-ci d'ajouter le typage statique et la vérification de type à notre langage Psil. Nous avons procédé de manière séquentielle.\\
+	
+	La première étape a été de comprendre exactement les ajouts de syntaxe qui avaient été faits. Notamment, l'ajout des types aux abstractions et aux définitions locales ainsi que l'ajout d'un nouveau type de \lexp afin de définir les types algébriques.\\
+	
+	La seconde étape a été de comprendre la sémantique statique du langage. Avec le paragraphe fourni, cette tâche a été plus facile. Mais nous avions encore de la difficulté à comprendre et à conceptualiser le principe de \textbf{type bidon}  pour les définitions locales. On comprenait à peu près le problème exposé mais pas comment est ce qu'on devrait litéralement l'implémenter. Donc nous avons décider de laisser cette partie de la compréhension à lorsque nous serions en train d'écrire proprement le code.\\
+	
+	Après cela, nous avons décidé de notre méthode de travail. Elle est assez simple. Nous avons mis le projet en place sur un répertoire github. Chacun travaillait sur sa branche en essayant de compléter les fonctions \stol, \ch et \eval. En cas de blocage ou d'incompréhension, nous discutions à travers l'application Discord pour mutuellement avancer. Cela nous a permis d'avoir des approches différentes dans la rédaction du code sans pour autant prendre du retard puisque nous étions en communication permanente.\\
+	
+	Puisque nous avions déjà l'expérience du TP1, nous n'avons pas eu de difficultés à intégrer les changements de syntaxe nécessaires à \lexp et \stol.\\
+	
+	Les premières difficultés ont été rencontrées au niveau de l'implémentation de la fonction \ch.\\
+	
+	Comme précisé précédemment, nous ne comprenions pas vraiment où intervenait la dépendance circulaire pour le cas des déclarations non récursives. Mais c'est devenu assez clair dès que nous avons commencer à traiter de la vérification de type en fonction des déclarations. Le réel problème ici est que nous ne faisons pas de \textit{l'inférence de type}. Or, le type des déclarations non récursives est nécessaire pour faire le checking pour l'expression au total. Donc la stratégie a été de définir un type \texttt{Ldummy var} qui précise juste que le type de la variable \texttt{var} est le type bidon.\\
+	
+	Ainsi, lors de la vérification nous avons écrit une fonction \texttt{equalOrDummy} qui permet lorsqu'on veut vérifier que deux types sont correspondant, d'accepter directement lorsqu'on rencontre un \texttt{Ldummy}. En gros le type \texttt{Ldummy} s'identifie à tous les autres types. \\
+	
+	Evidemment cela peut créer des failles mais dans le contexte de notre TP, c'est acceptable. Mais toujours par souci de renforcer la sécurité nous avons fait la vérification en deux étapes. Une première passe qui utilise l'environnement simple où toutes les définitions non récursives ont le type bidon pour checker le types des autres définitions et une seconde passe pour laquelle après avoir donc checker le type d'une définition en utilisant le type bidon, on remplace la valeur finale (et donc par chance le vrai type) dans notre environnement qui sera utilisé pour checker soit les autres définitions ou le \texttt{body} de l'expression \texttt{Ldef}.\\
+	
+	Il y a eu beaucoup d'essai-erreur pour y arriver mais nous avions maintenant une version plutôt satisfaisante de notre vérification de type. Tout ce qu'il restait à faire, c'était maintenant d'étendre la considération du type \texttt{Ldummy} comme type acceptant à tous les autres types de \lexp. Parce qu'en effet, comme on a dit, avec notre approche, il est bien possible qu'on retrouve des types \texttt{Ldummy} dans le type que renvoie le \texttt{body} de notre \texttt{Ldef}. \\
+	
+	Donc partout où c'était possible d'utiliser un \texttt{Ldef}, dans les autres types de \lexp, nous avons inclut la fonction \texttt{equalOrDummy} au lieu d'une simple vérification d'égalité. Cette inclusion a notamment été faite dans les versions de \ch des expressions de type \texttt{Lapply, Lnew} et \texttt{Lfilter} comme vous pourrez le remarquer dans le code.\\
+	
+	Il nous restait maintenant à implémenter le fonction \texttt{eval}. A notre surprise, elle a été la plus facile à implémenter des trois. Le fais que nous déléguions maintenant tout le processus complexe de recherche et d'évaluation réelle au compilateur \texttt{Haskell}, nous a vraiment simplifié la tâche. Bien sûr il nous a fallut un peut de temps pour nous habituer à la forme de retour de la fonction. Parce que maintenant, nous ne retournions plus une \texttt{Value} mais plutôt une \texttt{[Value] -> Value}. Donc il fallait à chaque fois récupérer l'environnement des valeurs. Mais cela a été vite appréhendé. \\
+	
+	\vspace{1cm}
+	
+	
+	Parlons maintenant des tests. Nous avons décidé de faire 4 tests qui marchaient correctement et 3 tests qui renvoyaient des erreurs de types dont 1 serait accepté à l'exécution.\\
+	
+	Notre focus a été premièrement de nous assurer que nous testions au moins tous les types de \lexp. Notre premier test a été un test assez simple mais qui d'entrée de jeu nous permettait de vérifier qu'il n'y avait aucun problème avec le type bidon. Ce test a correctement fonctionné.
+	
+	Notre deuxième test a porté sur les énoncés \texttt{def} et \texttt{if} à l'aide de la fonction de fibonacci. Ça été vraiment utile aussi pour tester une fonction simplement récursive.
+	
+	Le troisième test a porté sur l'énoncé \texttt{abs} et aussi l'\texttt{appel currifié de fonction}. Notamment ici l'objectif c'était de voir si la vérification de type avec un type plus complexe (\texttt{Int -> Int -> Int}) marchait correctement. Ce test a aussi marché.
+	
+	Le quatrième test définissait un type algébrique d'arbre binaire et effectuait un calcul sans sens réel sur cet arbre. L'objectif était vraiment juste de tester les énoncés de type \texttt{Ladt, Lfilter, Lnew} et \texttt{Ldef}. Nous avons aussi pu tester à travers cela, la définition de ocntions mutuellement récursives. Ce test a lui aussi marché.\\
+	
+	Maintenant nous sommes passés aux tests qui devaient donner des erreurs de type.Le premier test a été un test où le paramètre passé lors de l'appel de fonction n'avait pas le type attendu. Ce test a bien renvoyé une erreur décrivant ce cas de figure.
+	
+	Le deuxième test nous avons utilisé un énoncé \texttt{filter} mais dans lequel, le corps des branchements n'avaient pas tous le même type. Ça a effectivement renvoyé aussi une erreur.
+	
+	Dans le dernier test, nous avons précisé un mauvais types comme type de retour d'une fonction. En réalité, la fonction retournait une valeur du bon type, donc on n'aurait pas eu d'erreur au niveau de l'exécution mais à cause d'une erreur de typage de la part du développeur, le code a planté.\\
+	
+		
+	Cela terminait notre série de tests et nous avons bouclé le travail. Merci.
+	
+	
+\end{document}

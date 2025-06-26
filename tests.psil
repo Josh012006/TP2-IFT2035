@@ -1,6 +1,12 @@
 ;; Tests qui marchent autant à la compilataion qu'à l'exécution
 
 
+;; Tester une définition locale simple mais avec le type bidon
+(def ((x 3)
+      (multX ((y Int))
+        Int (* x y)))
+  (multX 9))                                                         ; ↝ 27
+
 ;; Tester une fonction récursive , une définition locale de fonction
 ;; et l'énoncé if
 ;; La fonction de fibonacci
